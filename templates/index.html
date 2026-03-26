@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мониторинг РОИ-2026</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f9;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Карточка проходного балла */
+        .threshold-card {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            margin-bottom: 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 10px solid #1a73e8;
+        }
+
+        .threshold-info h2 { margin: 0; color: #555; font-size: 1.2em; }
+        .threshold-info p { margin: 5px 0 0; color: #888; font-size: 0.85em; }
+        .threshold-val { font-size: 3em; font-weight: bold; color: #1a73e8; }
+
+        /* Таблица */
+        .table-wrapper {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        th {
+            background-color: #1a73e8;
+            color: white;
+            padding: 15px;
+            text-align: left;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #edf2f7;
+        }
+
+        /* ПОДСВЕТКА: Красная (ниже порога) */
+        .no-diploma {
+            background-color: rgba(255, 235, 238, 0.9) !important;
+            color: #c62828;
+        }
+
+        /* ПОДСВЕТКА: Синяя прозрачная (статистика / последние 2 строки) */
+        .stats-row {
+            background-color: rgba(232, 240, 254, 0.7) !important;
+            color: #1967d2;
+            font-weight: bold;
+        }
+
+        tr:hover { background-color: #f8f9fa; }
+
+        .status-line {
+            margin-bottom: 10px;
+            font-size: 0.9em;
+            color: #718096;
+            display: flex;
+            justify-content: space-between;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Верхняя панель с баллом -->
+    <div class="threshold-card">
+        <div class="threshold-info">
+            <h2>Проходной балл на призера (219 место)</h2>
+            <p>* согласно регламенту, не может быть ниже 400 баллов</p>
+        </div>
+        <div class="threshold-val" id="threshold-display">0</div>
+    </div>
+
+    <!-- Статус обновления -->
+    <div class="status-line">
+        <span id="filter-info">Фильтр: загрузка...</span>
+        <span id="last-update">Обновление...</span>
+    </div>
+
+    <!-- Сама таблица -->
+    <div class="table-wrapper">
+        <table id="resultTable">
+            <thead></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // Получаем фильтр из URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const filterValue = urlParams.get('filter') || '';
+    document.getElementById('filter-info').textContent = filterValue ? `Фильтр: "${filterValue}"` : "Все участники";
+
+    function loadData() {
+        const updateEl = document.getElementById('last-update');
+        updateEl.textContent = "Синхронизация...";
+
+        fetch(`/api/data?filter=${encodeURIComponent(filterValue)}`)
+            .then(res => res.json())
+            .then(result => {
+                // 1. Ставим балл в карточку
+                document.getElementById('threshold-display').textContent = result.threshold;
+
+                const thead = document.querySelector('#resultTable thead');
+                const tbody = document.querySelector('#resultTable tbody');
+                thead.innerHTML = '';
+                tbody.innerHTML = '';
+
+                const data = result.table; // Это список списков [ [заголовки], [строка1], ... ]
+
+                if (data.length > 0) {
+                    // Рисуем ШАПКУ (первый элемент)
+                    let hRow = document.createElement('tr');
+                    data[0].forEach(text => {
+                        let th = document.createElement('th');
+                        th.textContent = text;
+                        hRow.appendChild(th);
+                    });
+                    thead.appendChild(hRow);
+
+                    // Рисуем СТРОКИ (остальные)
+                    const rowsOnly = data.slice(1);
+                    const totalRows = rowsOnly.length;
+
+                    rowsOnly.forEach((rowData, index) => {
+                        let tr = document.createElement('tr');
+
+                        // ЛОГИКА ПОДСВЕТКИ
+                        // А) Последние две строки — СИНИМ
+                        if (index >= totalRows - 2) {
+                            tr.classList.add('stats-row');
+                        }
+                        // Б) Если балл ниже порога — КРАСНЫМ
+                        else {
+                            let userScore = parseInt(rowData[rowData.length - 1]);
+                            if (!isNaN(userScore) && userScore < result.threshold) {
+                                tr.classList.add('no-diploma');
+                            }
+                        }
+
+                        // Заполняем ячейки
+                        rowData.forEach(cellText => {
+                            let td = document.createElement('td');
+                            td.textContent = cellText;
+                            tr.appendChild(td);
+                        });
+                        tbody.appendChild(tr);
+                    });
+                }
+
+                updateEl.textContent = "Обновлено: " + new Date().toLocaleTimeString();
+            })
+            .catch(err => {
+                console.error(err);
+                updateEl.textContent = "Ошибка связи с сервером";
+            });
+    }
+
+    // Первый запуск
+    loadData();
+    // Интервал 30 секунд
+    setInterval(loadData, 30000);
+</script>
+
+</body>
+</html>
